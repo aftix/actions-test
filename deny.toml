@@ -1,0 +1,40 @@
+[licenses]
+# List of explicitly allowed licenses
+# See https://spdx.org/licenses/ for list of possible licenses
+# [possible values: any SPDX 3.11 short identifier (+ optional exception)].
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "GPL-2.0",
+    "ISC",
+    "MIT",
+    "OpenSSL",
+    "Unicode-3.0"
+]
+confidence-threshold = 0.8
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+highlight = "simplest-path"
+workspace-default-features = "allow"
+external-default-features = "allow"
+skip = [
+    { crate = "http", reason = "warp depends on hyper and tungstenite which use different versions of this crate" }
+]
+skip-tree = [
+    { crate = "regex", reason = "tracing has multiple versions in its lockfile" },
+    { crate = "windows-sys", reason = "a foundational crate for many that bumps far too frequently to ever have a shared version" }
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+required-git-spec = "rev"

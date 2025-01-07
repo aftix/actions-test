@@ -1,0 +1,11 @@
+name: pr_opened
+
+on:
+  repository_dispatch:
+
+jobs:
+  test:
+    name: Test repository_dispatch job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4

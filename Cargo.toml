@@ -1,0 +1,12 @@
+[package]
+name = "forgejo-gha-proxy"
+description = "Simple HTTP(S) proxy for GHA triggers"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0"
+
+[dependencies]
+tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+warp = { version = "0.3.7", features = ["tls", "compression-gzip"] }
