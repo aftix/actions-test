@@ -25,6 +25,8 @@
     ...
   } @ inputs:
     {
+      nixosModules.default = import ./nix/module.nix self.overlays.default;
+
       overlays.default = final: prev: let
         workspaceCargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
         pkgs = final.extend (import inputs.rust-overlay);
