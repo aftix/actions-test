@@ -1,10 +1,18 @@
+use bytes::{Buf, Bytes};
+use serde::Serialize;
 use std::{
     env::{self, VarError},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
-
+use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
-use warp::{filters::path::FullPath, reply::Response, Filter};
+use warp::{
+    filters::path::FullPath,
+    http::{HeaderMap, Request, StatusCode},
+    hyper::{Body, Client},
+    reply::{with_status, Reply, Response},
+    Filter,
+};
 
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 const LOCALHOST_V6: IpAddr = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
@@ -23,17 +31,17 @@ async fn main() {
         tracing_subscriber::fmt::fmt().compact().init();
     }
 
-    let get_proxy = warp::any()
-        .and(warp::get())
-        .and(warp::path::full())
+    let args_proxy = warp::path::full()
+        .and(warp::filters::header::optional("X-Github-Event"))
+        .and(warp::filters::header::headers_cloned());
+
+    let proxy = warp::any()
+        .and(warp::post())
+        .and(args_proxy)
+        .and(warp::body::content_length_limit(1024 * 64))
+        .and(warp::body::bytes())
         .then(proxy_webhook)
         .with(warp::filters::compression::gzip());
-    let post_proxy = warp::any()
-        .and(warp::get())
-        .and(warp::path::full())
-        .then(proxy_webhook)
-        .with(warp::filters::compression::gzip());
-    let proxy = get_proxy.or(post_proxy);
 
     let listen_port = env::var("LISTEN_PORT").expect("Failed to get LISTEN_PORT envvar");
     let listen_port: u16 = listen_port
@@ -76,6 +84,66 @@ async fn main() {
     }
 }
 
-async fn proxy_webhook(_path: FullPath) -> Response {
-    todo!()
+#[derive(Serialize)]
+struct RepositoryDispatch {
+    event_type: String,
+    client_payload: serde_json::Value,
+}
+
+async fn proxy_webhook(
+    path: FullPath,
+    event_header: Option<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    debug!("Got POST request for {:?}", path);
+
+    let event_type = event_header.unwrap_or("workflow_dispatch".to_owned());
+
+    // SAFETY: 400 is a valid status code
+    let http400 = unsafe { StatusCode::from_u16(400).unwrap_unchecked() };
+    // SAFETY: 500 is a valid status code
+    let http500 = unsafe { StatusCode::from_u16(500).unwrap_unchecked() };
+
+    let body = serde_json::from_reader::<_, serde_json::Value>(body.reader());
+
+    let Ok(request_body) = body else {
+        return with_status("Inavalid body", http400).into_response();
+    };
+    debug!("Got body from POST request");
+
+    let mut builder = Request::post(format!("https://github.com/{}", path.as_str()))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+
+    for (header, value) in &headers {
+        builder = builder.header(header, value);
+    }
+
+    let request_body = RepositoryDispatch {
+        event_type,
+        client_payload: request_body,
+    };
+    let Ok(request_body) = serde_json::ser::to_vec(&request_body) else {
+        return with_status("Unable to re-serialize body", http500).into_response();
+    };
+    let request_body = Body::from(request_body);
+    debug!("Serialized response body");
+
+    let request = match builder.body(request_body) {
+        Err(err) => {
+            return with_status(err.to_string(), http500).into_response();
+        }
+        Ok(req) => req,
+    };
+    info!("Created request for github");
+
+    let client = Client::new();
+
+    let Ok(response) = client.request(request).await else {
+        return with_status("Failed to send request to github", http500).into_response();
+    };
+    info!("Got response from github");
+
+    response
 }
